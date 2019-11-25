@@ -31,7 +31,8 @@ sync_push(Name, RegIds, Message) ->
     sync_push(Name, RegIds, Message, ?RETRY).
 
 sync_push(Name, RegIds, Message, Retry) ->
-    gen_server:call(Name, {send, RegIds, Message, Retry}).
+    gen_server:call(Name, {send, RegIds, Message, Retry}, 
+        timer:seconds(30)).
 
 %% OTP
 start_link(Name, Key) ->
@@ -39,6 +40,7 @@ start_link(Name, Key) ->
 
 init([Key]) ->
     GoogleKey = string:concat("key=", Key),
+    erlang:process_flag(trap_exit, true),
     {ok, #state{key = GoogleKey}}.
 
 handle_call(stop, _From, State) ->
