@@ -1,6 +1,8 @@
 PROJECT = fcm
 
-DEPS = lager qdate jsx
+app:: rebar.config
+
+DEPS = lager jsx
 include erlang.mk
 
 ERLC_COMPILE_OPTS= +'{parse_transform, lager_transform}'
