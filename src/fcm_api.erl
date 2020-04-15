@@ -4,7 +4,8 @@
 
 -export([push/3]).
 
--define(HTTP_OPTIONS, [{body_format, binary}]).
+-define(HTTP_OPTIONS, [{timeout, timer:seconds(10)}]).
+-define(OPTIONS, [{body_format, binary}]).
 -define(BASEURL, "https://fcm.googleapis.com/fcm/send").
 
 -define(HEADERS(ApiKey), [{"Authorization", ApiKey}]).
@@ -29,7 +30,7 @@ push(RegIds, Message, ApiKey) ->
     push(jsx:encode(Request), ApiKey).
 
 push(Message, ApiKey) ->
-    try httpc:request(post, ?HTTP_REQUEST(ApiKey, Message), [], ?HTTP_OPTIONS) of
+    try httpc:request(post, ?HTTP_REQUEST(ApiKey, Message), ?HTTP_OPTIONS, ?OPTIONS) of
         {ok, {{_, 200, _}, _Headers, Body}} ->
             Json = jsx:decode(Body),
             ?INFO_MSG("Result was: ~p~n", [Json]),
@@ -47,6 +48,11 @@ push(Message, ApiKey) ->
         {ok, {{_StatusLine, _, _}, _, _Body}} ->
             ?ERROR_MSG("Error in request. Reason was: timeout~n", []),
             {error, timeout};
+
+        {error, Reason = timeout} ->
+            ?ERROR_MSG("Error in request. Reason was: ~p~n", [Reason]),
+            {error, {retry, 2}};
+
         {error, Reason} ->
             ?ERROR_MSG("Error in request. Reason was: ~p~n", [Reason]),
             {error, Reason};
