@@ -1,40 +1,64 @@
--module(fcm_api).
+-module(fcm_api_legacy).
 
 -include("logger.hrl").
 
--export([push/3]).
+-export([push/4]).
 
 -define(HTTP_OPTIONS, [{timeout, timer:seconds(10)}]).
 -define(OPTIONS, [{body_format, binary}]).
 -define(BASEURL, "https://fcm.googleapis.com/fcm/send").
-
+-define(JSX_OPTS, [return_maps, {labels, atom}]).
 -define(HEADERS(ApiKey), [{"Authorization", ApiKey}]).
 -define(CONTENT_TYPE, "application/json").
 
--define(HTTP_REQUEST(ApiKey, Message),
-        {?BASEURL, ?HEADERS(ApiKey), ?CONTENT_TYPE, Message}).
+-define(HTTP_REQUEST(ApiKey, ReqBody),
+        {?BASEURL, ?HEADERS(ApiKey), ?CONTENT_TYPE, ReqBody}).
 
-push(RegIds, Message, ApiKey) when is_list(Message) ->
-    MessageMap = maps:from_list(Message),
-    push(RegIds, MessageMap, ApiKey);
+-spec push(list(binary()), map(), string(), integer()) -> list(tuple()) | {error, term()}.
+push(RegIds, Message, Key, Retry) ->
+    ?INFO_MSG("Sending message: ~p to reg ids: ~p retries: ~p.~n", [Message, RegIds, Retry]),
+    case do_push(RegIds, Message, Key) of
+        {ok, GCMResult} ->
+            handle_result(GCMResult, RegIds);
+        {error, {retry, RetryAfter}} when (Retry > 0)->
+            ?INFO_MSG("Received retry-after. Will retry: ~p times~n", [Retry]),
+            timer:sleep(RetryAfter * 1000),
+            push(RegIds, Message, Key, Retry - 1);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
-push(RegId, Message, ApiKey) when is_binary(RegId) ->
-    push([RegId], Message, ApiKey);
+%% ----------------------------------------------------------------------
+%% internal
+%% ----------------------------------------------------------------------
+handle_result(GCMResult, RegId) when is_binary(RegId) ->
+    handle_result(GCMResult, [RegId]);
+handle_result(GCMResult, RegIds) ->
+    Json = jsx:decode(GCMResult, ?JSX_OPTS),
+    ?INFO_MSG("fcm_api_legacy: result: ~p~n", [Json]),
+    Results = maps:get(results, Json, []),
+    lists:map(fun({Result, RegId}) -> {RegId, parse(Result)} end, lists:zip(Results, RegIds)).
 
-push([RegId], Message, ApiKey) ->
-    Request = maps:put(<<"to">>, RegId, Message),
-    push(jsx:encode(Request), ApiKey);
+parse(#{error := Error}) -> Error;
+parse(#{registration_id := NewRegId}) ->
+    {<<"NewRegistrationId">>, NewRegId};
+parse(_) -> ok.
 
-push(RegIds, Message, ApiKey) ->
-    Request = maps:put(<<"registration_ids">>, RegIds, Message),
-    push(jsx:encode(Request), ApiKey).
+%% ------------------------------------------------------------
+%% internal api
+%% ------------------------------------------------------------
+append_token(Message, [RegId]) ->
+    maps:put(<<"to">>, RegId, Message);
+append_token(Message, RegIds) ->
+    maps:put(<<"registration_ids">>, RegIds, Message).
 
-push(Message, ApiKey) ->
-    try httpc:request(post, ?HTTP_REQUEST(ApiKey, Message), ?HTTP_OPTIONS, ?OPTIONS) of
+
+do_push(RegIds, MapBody0, ApiKey) ->
+    MapBody = append_token(MapBody0, RegIds),
+    ReqBody = jsx:encode(MapBody),
+    try httpc:request(post, ?HTTP_REQUEST(ApiKey, ReqBody), [], ?HTTP_OPTIONS) of
         {ok, {{_, 200, _}, _Headers, Body}} ->
-            Json = jsx:decode(Body),
-            ?INFO_MSG("Result was: ~p~n", [Json]),
-            {ok, result_from(Json)};
+            {ok, Body};
         {ok, {{_, 400, _}, _, Body}} ->
             ?ERROR_MSG("Error in request. Reason was: Bad Request - ~p~n", [Body]),
             {error, Body};
@@ -65,30 +89,6 @@ push(Message, ApiKey) ->
             {error, Exception}
     end.
 
-result_from(Json) when is_list(Json) ->
-    {
-        proplists:get_value(<<"multicast_id">>, Json),
-        proplists:get_value(<<"success">>, Json),
-        proplists:get_value(<<"failure">>, Json),
-        proplists:get_value(<<"canonical_ids">>, Json),
-        proplists:get_value(<<"results">>, Json)
-    };
-result_from(Json) when is_map(Json) ->
-    {
-        maps:get(<<"multicast_id">>, Json, undefined),
-        maps:get(<<"success">>, Json, undefined),
-        maps:get(<<"failure">>, Json, undefined),
-        maps:get(<<"canonical_ids">>, Json, undefined),
-        maps:get(<<"results">>, Json, undefined)
-    };
-result_from(_) ->
-    {
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined
-    }.
 
 retry_after_from(Headers) ->
     case proplists:get_value("retry-after", Headers) of
