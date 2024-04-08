@@ -65,13 +65,29 @@ push(Message, ApiKey) ->
             {error, Exception}
     end.
 
-result_from(Json) ->
+result_from(Json) when is_list(Json) ->
     {
-      proplists:get_value(<<"multicast_id">>, Json),
-      proplists:get_value(<<"success">>, Json),
-      proplists:get_value(<<"failure">>, Json),
-      proplists:get_value(<<"canonical_ids">>, Json),
-      proplists:get_value(<<"results">>, Json)
+        proplists:get_value(<<"multicast_id">>, Json),
+        proplists:get_value(<<"success">>, Json),
+        proplists:get_value(<<"failure">>, Json),
+        proplists:get_value(<<"canonical_ids">>, Json),
+        proplists:get_value(<<"results">>, Json)
+    };
+result_from(Json) when is_map(Json) ->
+    {
+        maps:get(<<"multicast_id">>, Json, undefined),
+        maps:get(<<"success">>, Json, undefined),
+        maps:get(<<"failure">>, Json, undefined),
+        maps:get(<<"canonical_ids">>, Json, undefined),
+        maps:get(<<"results">>, Json, undefined)
+    };
+result_from(_) ->
+    {
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined
     }.
 
 retry_after_from(Headers) ->
