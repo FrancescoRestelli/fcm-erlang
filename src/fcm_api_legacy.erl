@@ -56,7 +56,7 @@ append_token(Message, RegIds) ->
 do_push(RegIds, MapBody0, ApiKey) ->
     MapBody = append_token(MapBody0, RegIds),
     ReqBody = jsx:encode(MapBody),
-    try httpc:request(post, ?HTTP_REQUEST(ApiKey, ReqBody), [], ?HTTP_OPTIONS) of
+    try httpc:request(post, ?HTTP_REQUEST(ApiKey, ReqBody), [], ?HTTP_OPTIONS, ?OPTIONS) of
         {ok, {{_, 200, _}, _Headers, Body}} ->
             {ok, Body};
         {ok, {{_, 400, _}, _, Body}} ->
